@@ -4,7 +4,7 @@ Constructor y visualizador de **Autómatas Finitos Deterministas (AFD)** a parti
 
 ##  Características
 
--  **Múltiples Algoritmos**: Thompson, Berry-Sethi, Brzozowski, y construcción directa
+-  **Múltiples Algoritmos**: Thompson, (faltan los demas) 
 -  **Visualización Interactiva**: Gráficos web con vis.js para explorar el AFD
 -  **Procesamiento en Lote**: Procesa múltiples archivos automáticamente
 -  **Reportes**: Documentación automática en Markdown
