@@ -5,7 +5,7 @@
 
 class ShuntingYard {
     constructor() {
-        // Definir precedencia de operadores (mayor numero = mayor precedencia)
+        // Definir precedencia de operadores (mayor número = mayor precedencia)
         this.precedence = {
             '|': 1,    // OR (alternacion)
             '.': 2,    // Concatenacion implicita
@@ -72,11 +72,11 @@ class ShuntingYard {
     }
 
     /**
-     * Determina si se necesita insertar un operador de concatenacion
+     * Determina si se necesita insertar un operador de concatenación
      * entre dos caracteres consecutivos
      * @param {string} current - Caracter actual
      * @param {string} next - Siguiente caracter
-     * @returns {boolean} True si se necesita concatenacion
+     * @returns {boolean} True si se necesita concatenación
      */
     needsConcatenation(current, next) {
         // No concatenar si el actual es un operador binario o parentesis de apertura
@@ -95,7 +95,7 @@ class ShuntingYard {
 
     /**
      * Aplica el algoritmo Shunting Yard
-     * @param {string} expression - Expresion con concatenaciones explicitas
+     * @param {string} expression - Expresión con concatenaciones explicitas
      * @returns {string} Expresion en notacion postfija
      */
     shuntingYard(expression) {
@@ -342,4 +342,15 @@ export default ShuntingYard;
 
 // Ejemplo de uso:
 
+const shuntingYard = new ShuntingYard();
 
+// Casos de prueba del proyecto
+const testCases = [
+    '(b|b)*abb(a|b)*',
+    'a*b+',
+    '(a|b)*abb',
+    'a+b*c',
+    '((a|b)*c)*'
+];
+
+shuntingYard.runTests(testCases);
