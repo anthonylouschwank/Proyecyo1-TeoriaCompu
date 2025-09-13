@@ -1,0 +1,26 @@
+{
+  "DESCRIPCION": "Acepta exactamente las cadenas que terminan en 'ab'.",
+  "ESTADOS": ["q0","q1","q2"],
+  "INICIO": "q0",
+  "ACEPTACION": ["q2"],
+  "TRANSICIONES": [
+    {"from":"q0","symbol":"a","to":"q1"},
+    {"from":"q0","symbol":"b","to":"q0"},
+    {"from":"q1","symbol":"a","to":"q1"},
+    {"from":"q1","symbol":"b","to":"q2"},
+    {"from":"q2","symbol":"a","to":"q1"},
+    {"from":"q2","symbol":"b","to":"q0"}
+  ],
+  "PRUEBAS": [
+    {"cadena":"",      "esperado":"RECHAZADA","razon":"no termina en 'ab'"},
+    {"cadena":"a",     "esperado":"RECHAZADA","razon":"un solo simbolo"},
+    {"cadena":"b",     "esperado":"RECHAZADA","razon":"un solo simbolo"},
+    {"cadena":"ab",    "esperado":"ACEPTADA", "razon":"termina en 'ab'"},
+    {"cadena":"ba",    "esperado":"RECHAZADA","razon":"termina en 'a'"},
+    {"cadena":"aab",   "esperado":"ACEPTADA", "razon":"termina en 'ab'"},
+    {"cadena":"abba",  "esperado":"RECHAZADA","razon":"termina en 'ba'"},
+    {"cadena":"baba",  "esperado":"RECHAZADA","razon":"termina en 'ba'"},
+    {"cadena":"aaab",  "esperado":"ACEPTADA", "razon":"termina en 'ab'"},
+    {"cadena":"bab",   "esperado":"ACEPTADA", "razon":"termina en 'ab'"}
+  ]
+}

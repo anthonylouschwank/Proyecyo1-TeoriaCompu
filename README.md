@@ -269,3 +269,7 @@ if (!validation.isValid) {
 ## Documentacion Adicional
 
 Proyecto de Teoria de la Computacion 2025  
+
+## Correr programa
+
+npx http-server . -p 5173 -c-1

@@ -1,0 +1,24 @@
+{
+  "DESCRIPCION": "Acepta exactamente las cadenas con un numero par de 'a'.",
+  "ESTADOS": ["q0","q1"],
+  "INICIO": "q0",
+  "ACEPTACION": ["q0"],
+  "TRANSICIONES": [
+    {"from":"q0","symbol":"a","to":"q1"},
+    {"from":"q0","symbol":"b","to":"q0"},
+    {"from":"q1","symbol":"a","to":"q0"},
+    {"from":"q1","symbol":"b","to":"q1"}
+  ],
+  "PRUEBAS": [
+    {"cadena":"",       "esperado":"ACEPTADA", "razon":"0 'a' es par"},
+    {"cadena":"a",      "esperado":"RECHAZADA","razon":"1 'a' es impar"},
+    {"cadena":"b",      "esperado":"ACEPTADA", "razon":"0 'a' es par"},
+    {"cadena":"ab",     "esperado":"RECHAZADA","razon":"1 'a'"},
+    {"cadena":"ba",     "esperado":"RECHAZADA","razon":"1 'a'"},
+    {"cadena":"aa",     "esperado":"ACEPTADA", "razon":"2 'a'"},
+    {"cadena":"aab",    "esperado":"ACEPTADA", "razon":"2 'a'"},
+    {"cadena":"abba",   "esperado":"ACEPTADA", "razon":"2 'a'"},
+    {"cadena":"baba",   "esperado":"ACEPTADA", "razon":"2 'a'"},
+    {"cadena":"aaab",   "esperado":"RECHAZADA","razon":"3 'a'"}
+  ]
+}
