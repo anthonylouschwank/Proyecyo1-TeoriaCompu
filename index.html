@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Visualización simple de autómatas</title>
+
+  <!-- Evitar petición /favicon.ico -->
+  <link rel="icon" href="data:,">
+
+  <!-- Librerías de visualización -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.26.0/cytoscape.min.js"></script>
+  <!-- Graphviz en el navegador (Viz.js + WASM render) -->
+  <script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js"></script>
+
+  <style>
+    :root { --brand:#2196F3; }
+    *{box-sizing:border-box}
+    body{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial;
+      margin:0; background:#f5f7fb; color:#222;
+    }
+    header{
+      background:linear-gradient(45deg,#2196F3,#21CBF3);
+      color:#fff; padding:18px; text-align:center;
+      box-shadow:0 4px 16px rgba(0,0,0,.08)
+    }
+    .wrap{max-width:1200px;margin:20px auto;padding:0 16px}
+    .grid{display:grid;grid-template-columns:360px 1fr;gap:16px}
+    @media (max-width: 900px){.grid{grid-template-columns:1fr}}
+    .card{background:#fff;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.06);padding:16px}
+    label{font-weight:600; color:#333; display:block;margin:10px 0 6px}
+    textarea, select{
+      width:100%; padding:10px 12px; border:2px solid #e6ebf5; border-radius:10px; font-size:15px;
+      outline:none; transition:border-color .2s, box-shadow .2s; background:#fbfcff;
+    }
+    textarea{min-height:180px; font-family: ui-monospace,Consolas,Menlo,Monaco,monospace}
+    textarea:focus, select:focus{border-color:var(--brand); box-shadow:0 0 0 3px rgba(33,150,243,.12)}
+    .btn{
+      display:inline-flex; align-items:center; gap:8px;
+      background:linear-gradient(45deg,#2196F3,#21CBF3);
+      color:#fff; border:none; padding:10px 14px; border-radius:10px; cursor:pointer;
+      font-weight:700; letter-spacing:.3px; box-shadow:0 6px 18px rgba(33,150,243,.25);
+    }
+    .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+    #canvas{
+      height:560px; border:2px dashed #e7ebf5; border-radius:12px;
+      display:flex; align-items:center; justify-content:center; color:#8a94a6;
+      position:relative; overflow:hidden; background:#fff;
+    }
+    .row{display:flex; gap:10px}
+    .row > *{flex:1}
+    .note{font-size:.9rem;color:#557}
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Visualización simple de autómatas (D3 / Cytoscape / Graphviz)</h2>
+  </header>
+
+  <div class="wrap">
+    <div class="grid">
+      <!-- Panel izquierdo (controles) -->
+      <div class="card">
+        <div class="row">
+          <div>
+            <label for="lib">Librería</label>
+            <select id="lib">
+              <option value="d3">D3.js</option>
+              <option value="cytoscape">Cytoscape.js</option>
+              <option value="graphviz">Graphviz (Viz.js)</option>
+            </select>
+          </div>
+          <div>
+            <label for="layout">Layout</label>
+            <select id="layout">
+              <option value="auto">Auto</option>
+              <option value="force">Fuerzas (D3)</option>
+              <option value="hierarchical">Jerárquico</option>
+              <option value="circular">Circular</option>
+              <option value="grid">Grid</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="fmt">Formato de entrada</label>
+        <select id="fmt">
+          <option value="json">JSON (recomendado)</option>
+          <option value="dot">DOT (Graphviz)</option>
+        </select>
+
+        <label for="payload">Autómata (JSON o DOT)</label>
+        <textarea id="payload" spellcheck="false">{
+  "ESTADOS": ["q0","q1","q2","q3"],
+  "INICIO": "q0",
+  "ACEPTACION": ["q3"],
+  "TRANSICIONES": [
+    {"from":"q0","symbol":"a","to":"q1"},
+    {"from":"q1","symbol":"b","to":"q2"},
+    {"from":"q2","symbol":"b","to":"q3"},
+    {"from":"q0","symbol":"a","to":"q0"},
+    {"from":"q0","symbol":"b","to":"q0"}
+  ]
+}</textarea>
+        <div class="note">
+          JSON esperado: <code>ESTADOS</code>, <code>INICIO</code>, <code>ACEPTACION</code>, <code>TRANSICIONES[{from,symbol,to}]</code>.<br/>
+          También puedes pegar un grafo en formato DOT (Graphviz).
+        </div>
+
+        <div class="btns">
+          <button id="btn-draw" class="btn">🚀 Dibujar</button>
+          <button id="btn-export-img" class="btn">📸 Exportar PNG</button>
+          <button id="btn-clear" class="btn">🧹 Limpiar</button>
+        </div>
+      </div>
+
+      <!-- Panel derecho (visualización) -->
+      <div class="card">
+        <div id="canvas">Pega tu JSON o DOT y presiona “Dibujar”.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script ES module inline (sin main.js) -->
+  <script type="module">
+    import GraphVisualizer from '../src/visualization/graphVisualizer.js';
+
+    const $ = s => document.querySelector(s);
+    const viz = new GraphVisualizer('canvas');
+    viz.initialize($('#lib').value || 'd3');
+
+    function parseInput() {
+      const fmt = $('#fmt').value;
+      const raw = $('#payload').value.trim();
+      if (fmt === 'dot') return { dot: raw };
+
+      try {
+        const j = JSON.parse(raw);
+        j.ESTADOS = j.ESTADOS || [];
+        j.TRANSICIONES = j.TRANSICIONES || [];
+        j.ACEPTACION = j.ACEPTACION || [];
+        return { json: j };
+      } catch (e) {
+        alert('JSON inválido: ' + e.message);
+        return null;
+      }
+    }
+
+    async function draw() {
+      const data = parseInput();
+      if (!data) return;
+
+      viz.applyLayout($('#layout').value);
+
+      // Si agregaste los helpers (ver sección 2):
+      if (data.json && typeof viz.visualizeFromJSON === 'function') {
+        await viz.visualizeFromJSON(data.json);
+        return;
+      }
+      if (data.dot && typeof viz.visualizeFromDOT === 'function') {
+        $('#lib').value = 'graphviz';
+        viz.initialize('graphviz');
+        await viz.visualizeFromDOT(data.dot);
+        return;
+      }
+
+      // Fallback universal: adaptador para visualizeAutomaton()
+      if (data.json) {
+        const adapter = { export: () => JSON.stringify(data.json) };
+        await viz.visualizeAutomaton(adapter);
+      } else if (data.dot) {
+        // Fallback DOT directo usando Viz.js expuesto dentro de GraphVisualizer
+        const el = document.getElementById('canvas');
+        viz.clear();
+        if (!viz.viz) viz.initialize('graphviz');
+        const svg = await viz.viz.renderSVGElement(data.dot);
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        el.appendChild(svg);
+      }
+    }
+
+    $('#btn-draw').addEventListener('click', draw);
+
+    $('#btn-clear').addEventListener('click', ()=>{
+      viz.clear();
+      $('#canvas').textContent = 'Visualización limpia';
+    });
+
+    $('#btn-export-img').addEventListener('click', async ()=>{
+      try{
+        const out = await viz.exportAsImage('png');
+        let url;
+        if (out instanceof Blob) url = URL.createObjectURL(out);
+        else if (typeof out === 'string') url = out;
+        else throw new Error('Salida desconocida');
+
+        const a = document.createElement('a');
+        a.href = url; a.download = 'automata.png'; a.click();
+        if (out instanceof Blob) URL.revokeObjectURL(url);
+      }catch(e){ alert('No se pudo exportar la imagen: ' + e.message); }
+    });
+
+    $('#lib').addEventListener('change', async ()=>{
+      viz.initialize($('#lib').value);
+      await draw();
+    });
+
+    $('#layout').addEventListener('change', async ()=>{
+      viz.applyLayout($('#layout').value);
+      await draw();
+    });
+  </script>
+</body>
+</html>

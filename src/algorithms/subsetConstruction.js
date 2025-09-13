@@ -1,430 +1,320 @@
+// SubsetConstruction.js
 import Automaton from '../models/Automaton.js';
-import State from '../models/State.js';
 
-/**
- * Implementacion del algoritmo de Construccion de Subconjuntos
- * para convertir un AFN en AFD
- */
 class SubsetConstruction {
-    constructor() {
-        this.stateSetToId = new Map(); // Mapeo de conjuntos de estados a IDs
-        this.idToStateSet = new Map(); // Mapeo inverso: ID a conjunto de estados
-        this.nextStateId = 0;
-    }
+  constructor() {
+    this.stateSetToId = new Map(); // "{1,2}" -> dfaStateId
+    this.idToStateSet = new Map();  // dfaStateId -> Set<State(NFA)>
+  }
 
-    /**
-     * Convierte un AFN en AFD usando construccion de subconjuntos
-     * @param {Automaton} nfa - AFN de entrada
-     * @returns {Automaton} AFD resultante
-     */
-    convertToDFA(nfa) {
-        if (nfa.type !== 'NFA') {
-            throw new Error('El automata de entrada debe ser un AFN');
+  // ---------- Helpers básicos ----------
+  stateSetToString(stateSet) {
+    const ids = Array.from(stateSet).map(s => s.id).sort((a, b) => a - b);
+    return `{${ids.join(',')}}`;
+  }
+
+  // Regla de aceptación por intersección con los finales del NFA (lo que pide tu profe)
+  isAcceptingSetFrom(stateSet, acceptingNFAIds) {
+    for (const s of stateSet) if (acceptingNFAIds.has(s.id)) return true;
+    return false;
+  }
+
+  // Sellar trazabilidad NFA->DFA
+  stampOriginOnDFAState(dfaState, stateSet) {
+    dfaState.originNFAIds = Array.from(stateSet).map(s => s.id).sort((a, b) => a - b);
+  }
+
+  // Obtiene (o crea) un estado DFA para un conjunto de estados del NFA
+  getOrCreateDFAState(dfa, stateSet, acceptingNFAIds) {
+    const key = this.stateSetToString(stateSet);
+    if (this.stateSetToId.has(key)) {
+      const id = this.stateSetToId.get(key);
+      return dfa.getState(id); // ya existe
+    }
+    const isAcc = this.isAcceptingSetFrom(stateSet, acceptingNFAIds);
+    const dfaState = dfa.createState(isAcc);            // NO re-asignar IDs
+    this.stateSetToId.set(key, dfaState.id);
+    this.idToStateSet.set(dfaState.id, stateSet);
+    this.stampOriginOnDFAState(dfaState, stateSet);
+    return dfaState;
+  }
+
+  // move(S, a)
+  move(states, symbol) {
+    const result = new Set();
+    states.forEach(st => {
+      const targets = st.getTransitions(symbol);
+      targets.forEach(t => result.add(t));
+    });
+    return result;
+  }
+
+  // ---------- Conversión NFA -> DFA ----------
+  convertToDFA(nfa) {
+    if (nfa.type !== 'NFA') throw new Error('El automata de entrada debe ser un AFN');
+
+    // reset mapeos
+    this.stateSetToId.clear();
+    this.idToStateSet.clear();
+
+    const dfa = new Automaton('DFA');
+
+    // FUENTE DE VERDAD: estados finales del NFA
+    const acceptingNFAIds = new Set(Array.from(nfa.acceptStates).map(s => s.id));
+
+    // Tu Automaton ya NO mete 'ε' al alfabeto; no hace falta filtrarlo
+    const alphabet = nfa.getAlphabet();
+
+    // Estado inicial = ε-closure({q0})
+    const initialClosure = nfa.epsilonClosure(new Set([nfa.startState]));
+    const q0DFA = this.getOrCreateDFAState(dfa, initialClosure, acceptingNFAIds);
+    dfa.setStartState(q0DFA);
+
+    // BFS de conjuntos
+    const pending = [initialClosure];
+    const seen = new Set([this.stateSetToString(initialClosure)]);
+
+    while (pending.length) {
+      const currentSet = pending.shift();
+      const fromId = this.stateSetToId.get(this.stateSetToString(currentSet));
+      const fromState = dfa.getState(fromId);
+
+      for (const a of alphabet) {
+        const moveRes = this.move(currentSet, a);
+        if (moveRes.size === 0) continue;
+
+        const newSet = nfa.epsilonClosure(moveRes);
+        const toState = this.getOrCreateDFAState(dfa, newSet, acceptingNFAIds);
+
+        dfa.addTransition(fromState, a, toState);
+
+        const key = this.stateSetToString(newSet);
+        if (!seen.has(key)) {
+          seen.add(key);
+          pending.push(newSet);
         }
-
-        // Reiniciar contadores para nueva conversion
-        this.stateSetToId.clear();
-        this.idToStateSet.clear();
-        this.nextStateId = 0;
-
-        const dfa = new Automaton('DFA');
-        const unmarkedStates = []; // Cola de estados por procesar
-        const markedStates = new Set(); // Estados ya procesados
-
-        // Paso 1: Calcular estado inicial del AFD
-        const initialClosure = nfa.epsilonClosure(new Set([nfa.startState]));
-        const initialStateId = this.getStateId(initialClosure);
-        const initialDFAState = dfa.createState(this.isAcceptingSet(initialClosure));
-        initialDFAState.id = initialStateId;
-        dfa.states.set(initialStateId, initialDFAState);
-        dfa.setStartState(initialDFAState);
-        
-        unmarkedStates.push(initialClosure);
-
-        // Paso 2: Procesar todos los estados
-        while (unmarkedStates.length > 0) {
-            const currentStateSet = unmarkedStates.shift();
-            const currentStateId = this.getStateId(currentStateSet);
-            markedStates.add(this.stateSetToString(currentStateSet));
-
-            // Para cada simbolo del alfabeto
-            for (const symbol of nfa.getAlphabet()) {
-                // Calcular move(currentStateSet, symbol)
-                const moveResult = this.move(currentStateSet, symbol);
-                
-                if (moveResult.size === 0) {
-                    continue; // No hay transicion para este simbolo
-                }
-
-                // Calcular clausura epsilon del resultado
-                const newStateSet = nfa.epsilonClosure(moveResult);
-                const newStateSetString = this.stateSetToString(newStateSet);
-
-                // Si este conjunto de estados no ha sido visto antes
-                if (!this.stateSetToId.has(newStateSetString)) {
-                    const newStateId = this.getStateId(newStateSet);
-                    const newDFAState = dfa.createState(this.isAcceptingSet(newStateSet));
-                    newDFAState.id = newStateId;
-                    dfa.states.set(newStateId, newDFAState);
-                    
-                    unmarkedStates.push(newStateSet);
-                }
-
-                // Añadir transicion en el AFD
-                const fromState = dfa.getState(currentStateId);
-                const toStateId = this.stateSetToId.get(newStateSetString);
-                const toState = dfa.getState(toStateId);
-                
-                dfa.addTransition(fromState, symbol, toState);
-            }
-        }
-
-        return dfa;
+      }
     }
 
-    /**
-     * Calcula move(states, symbol) - estados alcanzables desde states con symbol
-     * @param {Set<State>} states - Conjunto de estados
-     * @param {string} symbol - Simbolo de entrada
-     * @returns {Set<State>} Estados alcanzables
-     */
-    move(states, symbol) {
-        const result = new Set();
-        
-        states.forEach(state => {
-            const transitions = state.getTransitions(symbol);
-            transitions.forEach(targetState => {
-                result.add(targetState);
-            });
-        });
-        
-        return result;
-    }
+    // Guarda los finales del NFA en el DFA para auditorías/optimizaciones
+    dfa._acceptingNFAIds = acceptingNFAIds;
 
-    /**
-     * Verifica si un conjunto de estados contiene al menos un estado de aceptacion
-     * @param {Set<State>} stateSet - Conjunto de estados
-     * @returns {boolean} True si es conjunto de aceptacion
-     */
-    isAcceptingSet(stateSet) {
-        for (const state of stateSet) {
-            if (state.isAccepting) {
-                return true;
-            }
-        }
-        return false;
-    }
+    return dfa;
+  }
 
-    /**
-     * Obtiene o crea un ID unico para un conjunto de estados
-     * @param {Set<State>} stateSet - Conjunto de estados
-     * @returns {number} ID unico
-     */
-    getStateId(stateSet) {
-        const stateSetString = this.stateSetToString(stateSet);
-        
-        if (!this.stateSetToId.has(stateSetString)) {
-            const newId = this.nextStateId++;
-            this.stateSetToId.set(stateSetString, newId);
-            this.idToStateSet.set(newId, stateSet);
-        }
-        
-        return this.stateSetToId.get(stateSetString);
-    }
+  // ---------- Conversión con pasos ----------
+  convertWithSteps(nfa) {
+    try {
+      this.stateSetToId.clear();
+      this.idToStateSet.clear();
 
-    /**
-     * Convierte un conjunto de estados a string para usarlo como clave
-     * @param {Set<State>} stateSet - Conjunto de estados
-     * @returns {string} Representacion en string
-     */
-    stateSetToString(stateSet) {
-        const stateIds = Array.from(stateSet).map(state => state.id).sort((a, b) => a - b);
-        return `{${stateIds.join(',')}}`;
-    }
+      const dfa = new Automaton('DFA');
+      const steps = [];
 
-    /**
-     * Convierte un AFN a AFD con informacion detallada del proceso
-     * @param {Automaton} nfa - AFN de entrada
-     * @returns {Object} Resultado completo de la conversion
-     */
-    convertWithSteps(nfa) {
-        try {
-            // Reiniciar para nueva conversion
-            this.stateSetToId.clear();
-            this.idToStateSet.clear();
-            this.nextStateId = 0;
+      const acceptingNFAIds = new Set(Array.from(nfa.acceptStates).map(s => s.id));
+      const alphabet = nfa.getAlphabet();
 
-            const steps = [];
-            const dfa = new Automaton('DFA');
-            const unmarkedStates = [];
-            const markedStates = new Set();
+      const initialClosure = nfa.epsilonClosure(new Set([nfa.startState]));
+      const q0DFA = this.getOrCreateDFAState(dfa, initialClosure, acceptingNFAIds);
+      dfa.setStartState(q0DFA);
 
-            // Paso 1: Estado inicial
-            const initialClosure = nfa.epsilonClosure(new Set([nfa.startState]));
-            const initialStateId = this.getStateId(initialClosure);
-            const initialDFAState = dfa.createState(this.isAcceptingSet(initialClosure));
-            initialDFAState.id = initialStateId;
-            dfa.states.set(initialStateId, initialDFAState);
-            dfa.setStartState(initialDFAState);
-            
-            unmarkedStates.push(initialClosure);
+      steps.push({
+        step: 1,
+        action: 'Estado inicial del AFD',
+        currentSet: this.stateSetToString(initialClosure),
+        isAccepting: q0DFA.isAccepting,
+        dfaStateId: q0DFA.id
+      });
 
+      let k = 2;
+      const pending = [initialClosure];
+      const seen = new Set([this.stateSetToString(initialClosure)]);
+
+      while (pending.length) {
+        const currentSet = pending.shift();
+        const currentKey = this.stateSetToString(currentSet);
+        const fromId = this.stateSetToId.get(currentKey);
+        const fromState = dfa.getState(fromId);
+
+        steps.push({ step: k++, action: `Procesando ${currentKey} (DFA ${fromId})` });
+
+        for (const a of alphabet) {
+          const moveRes = this.move(currentSet, a);
+          if (moveRes.size === 0) {
             steps.push({
-                step: 1,
-                action: 'Estado inicial del AFD',
-                currentState: this.stateSetToString(initialClosure),
-                epsilonClosure: this.stateSetToString(initialClosure),
-                isAccepting: this.isAcceptingSet(initialClosure),
-                dfaStateId: initialStateId
+              step: k++,
+              action: `No hay transición con '${a}'`,
+              from: currentKey
             });
+            continue;
+          }
 
-            let stepNumber = 2;
+          const newSet = nfa.epsilonClosure(moveRes);
+          const toState = this.getOrCreateDFAState(dfa, newSet, acceptingNFAIds);
 
-            // Paso 2: Procesar estados
-            while (unmarkedStates.length > 0) {
-                const currentStateSet = unmarkedStates.shift();
-                const currentStateId = this.getStateId(currentStateSet);
-                const currentStateString = this.stateSetToString(currentStateSet);
-                markedStates.add(currentStateString);
+          dfa.addTransition(fromState, a, toState);
 
-                steps.push({
-                    step: stepNumber++,
-                    action: `Procesando estado ${currentStateId}`,
-                    currentState: currentStateString,
-                    dfaStateId: currentStateId
-                });
+          steps.push({
+            step: k++,
+            action: `Transición '${a}'`,
+            from: currentKey,
+            move: this.stateSetToString(moveRes),
+            epsilonClosure: this.stateSetToString(newSet),
+            toDFA: toState.id,
+            toIsAccepting: toState.isAccepting
+          });
 
-                // Para cada simbolo del alfabeto
-                for (const symbol of nfa.getAlphabet()) {
-                    const moveResult = this.move(currentStateSet, symbol);
-                    
-                    if (moveResult.size === 0) {
-                        steps.push({
-                            step: stepNumber++,
-                            action: `No hay transicion con '${symbol}'`,
-                            currentState: currentStateString,
-                            symbol: symbol,
-                            moveResult: '{}',
-                            newState: null
-                        });
-                        continue;
-                    }
-
-                    const newStateSet = nfa.epsilonClosure(moveResult);
-                    const newStateSetString = this.stateSetToString(newStateSet);
-                    const moveResultString = this.stateSetToString(moveResult);
-
-                    let newStateId;
-                    let isNewState = false;
-
-                    if (!this.stateSetToId.has(newStateSetString)) {
-                        newStateId = this.getStateId(newStateSet);
-                        const newDFAState = dfa.createState(this.isAcceptingSet(newStateSet));
-                        newDFAState.id = newStateId;
-                        dfa.states.set(newStateId, newDFAState);
-                        
-                        unmarkedStates.push(newStateSet);
-                        isNewState = true;
-                    } else {
-                        newStateId = this.stateSetToId.get(newStateSetString);
-                    }
-
-                    // Añadir transicion
-                    const fromState = dfa.getState(currentStateId);
-                    const toState = dfa.getState(newStateId);
-                    dfa.addTransition(fromState, symbol, toState);
-
-                    steps.push({
-                        step: stepNumber++,
-                        action: `Transicion con '${symbol}'`,
-                        currentState: currentStateString,
-                        symbol: symbol,
-                        moveResult: moveResultString,
-                        epsilonClosure: newStateSetString,
-                        newState: newStateId,
-                        isNewState: isNewState,
-                        isAccepting: this.isAcceptingSet(newStateSet)
-                    });
-                }
-            }
-
-            return {
-                success: true,
-                nfa: nfa,
-                dfa: dfa,
-                steps: steps,
-                stateMapping: this.getStateMapping(),
-                statistics: this.getStatistics(nfa, dfa)
-            };
-
-        } catch (error) {
-            return {
-                success: false,
-                error: error.message,
-                dfa: null
-            };
+          const key = this.stateSetToString(newSet);
+          if (!seen.has(key)) {
+            seen.add(key);
+            pending.push(newSet);
+          }
         }
+      }
+
+      dfa._acceptingNFAIds = acceptingNFAIds;
+
+      return {
+        success: true,
+        nfa,
+        dfa,
+        steps,
+        stateMapping: this.getStateMapping(),
+        statistics: this.getStatistics(nfa, dfa)
+      };
+
+    } catch (error) {
+      return { success: false, error: error.message, dfa: null };
+    }
+  }
+
+  // ---------- utilerías ----------
+  getStateMapping() {
+    const mapping = {};
+    this.idToStateSet.forEach((set, id) => {
+      mapping[id] = {
+        dfaState: id,
+        nfaStates: Array.from(set).map(s => s.id).sort((a, b) => a - b),
+      };
+    });
+    return mapping;
+  }
+
+  countTransitions(automaton) {
+    let c = 0;
+    automaton.states.forEach(st => {
+      st.transitions.forEach(targets => c += targets.size);
+      // si quieres contar epsilons en NFAs, descomenta:
+      // st.epsilonTransitions.forEach(() => c++);
+    });
+    return c;
+  }
+
+  getStatistics(nfa, dfa) {
+    return {
+      nfaStates: nfa.states.size,
+      dfaStates: dfa.states.size,
+      reductionRatio: ((nfa.states.size - dfa.states.size) / nfa.states.size * 100).toFixed(2) + '%',
+      alphabetSize: nfa.alphabet.size,
+      nfaTransitions: this.countTransitions(nfa),
+      dfaTransitions: this.countTransitions(dfa)
+    };
+  }
+
+  /**
+   * Elimina inalcanzables del DFA preservando origen y aceptación por intersección.
+   * Requiere que dfa._acceptingNFAIds exista (lo define convertToDFA/convertWithSteps).
+   */
+  removeUnreachableStates(dfa) {
+    const reachable = new Set();
+    const queue = [];
+    if (dfa.startState) {
+      reachable.add(dfa.startState);
+      queue.push(dfa.startState);
     }
 
-    /**
-     * Obtiene el mapeo de estados AFD a conjuntos de estados AFN
-     * @returns {Object} Mapeo de estados
-     */
-    getStateMapping() {
-        const mapping = {};
-        this.idToStateSet.forEach((stateSet, id) => {
-            mapping[id] = {
-                dfaState: id,
-                nfaStates: Array.from(stateSet).map(s => s.id).sort((a, b) => a - b),
-                isAccepting: this.isAcceptingSet(stateSet)
-            };
+    while (queue.length) {
+      const cur = queue.shift();
+      cur.transitions.forEach(targets => {
+        targets.forEach(t => {
+          if (!reachable.has(t)) {
+            reachable.add(t);
+            queue.push(t);
+          }
         });
-        return mapping;
+      });
     }
 
-    /**
-     * Obtiene estadisticas de la conversion
-     * @param {Automaton} nfa - AFN original
-     * @param {Automaton} dfa - AFD resultante
-     * @returns {Object} Estadisticas
-     */
-    getStatistics(nfa, dfa) {
-        return {
-            nfaStates: nfa.states.size,
-            dfaStates: dfa.states.size,
-            reductionRatio: ((nfa.states.size - dfa.states.size) / nfa.states.size * 100).toFixed(2) + '%',
-            alphabetSize: nfa.alphabet.size,
-            nfaTransitions: this.countTransitions(nfa),
-            dfaTransitions: this.countTransitions(dfa)
-        };
-    }
+    const opt = new Automaton('DFA');
+    const mapOldToNew = new Map();
+    const accNFA = dfa._acceptingNFAIds instanceof Set ? dfa._acceptingNFAIds : new Set();
 
-    /**
-     * Cuenta el numero total de transiciones en un automata
-     * @param {Automaton} automaton - Automata a analizar
-     * @returns {number} Numero de transiciones
-     */
-    countTransitions(automaton) {
-        let count = 0;
-        automaton.states.forEach(state => {
-            state.transitions.forEach(targets => {
-                count += targets.size;
-            });
-            count += state.epsilonTransitions.size;
+    // copiar estados (re-evaluar aceptación por intersección)
+    reachable.forEach(oldSt => {
+      const ok = Array.isArray(oldSt.originNFAIds)
+        ? oldSt.originNFAIds.some(id => accNFA.has(id))
+        : oldSt.isAccepting; // fallback
+      const ns = opt.createState(ok);
+      // conservar origen
+      ns.originNFAIds = Array.isArray(oldSt.originNFAIds) ? [...oldSt.originNFAIds] : [];
+      mapOldToNew.set(oldSt, ns);
+      if (oldSt === dfa.startState) {
+        opt.setStartState(ns);
+      }
+    });
+
+    // copiar transiciones
+    reachable.forEach(oldSt => {
+      const from = mapOldToNew.get(oldSt);
+      oldSt.transitions.forEach((targets, sym) => {
+        targets.forEach(oldTo => {
+          if (reachable.has(oldTo)) {
+            opt.addTransition(from, sym, mapOldToNew.get(oldTo));
+          }
         });
-        return count;
-    }
+      });
+    });
 
-    /**
-     * Funcion de utilidad para probar el algoritmo
-     * @param {Array<Automaton>} testNFAs - AFNs de prueba
-     */
-    runTests(testNFAs) {
-        console.log('=== PRUEBAS CONSTRUCCIoN DE SUBCONJUNTOS ===\n');
-        
-        testNFAs.forEach((nfa, index) => {
-            console.log(`Prueba ${index + 1}:`);
-            
-            const result = this.convertWithSteps(nfa);
-            
-            if (result.success) {
-                console.log(`✓ Conversion exitosa`);
-                console.log(`  AFN: ${result.statistics.nfaStates} estados, ${result.statistics.nfaTransitions} transiciones`);
-                console.log(`  AFD: ${result.statistics.dfaStates} estados, ${result.statistics.dfaTransitions} transiciones`);
-                console.log(`  Reduccion: ${result.statistics.reductionRatio}`);
-                
-                console.log(`  Mapeo de estados:`);
-                Object.values(result.stateMapping).forEach(mapping => {
-                    console.log(`    ${mapping.dfaState} ← {${mapping.nfaStates.join(',')}}${mapping.isAccepting ? ' (aceptacion)' : ''}`);
-                });
-                
-                // Mostrar algunos pasos
-                console.log(`  Primeros pasos:`);
-                result.steps.slice(0, 5).forEach(step => {
-                    console.log(`    ${step.step}. ${step.action}`);
-                });
-                
-            } else {
-                console.log(`✗ Error: ${result.error}`);
-            }
-            console.log('');
-        });
-    }
-
-    /**
-     * Optimizacion: elimina estados inalcanzables del AFD
-     * @param {Automaton} dfa - AFD a optimizar
-     * @returns {Automaton} AFD optimizado
-     */
-    removeUnreachableStates(dfa) {
-        const reachableStates = new Set();
-        const queue = [dfa.startState];
-        reachableStates.add(dfa.startState);
-
-        // BFS para encontrar estados alcanzables
-        while (queue.length > 0) {
-            const currentState = queue.shift();
-            
-            currentState.transitions.forEach(targetStates => {
-                targetStates.forEach(targetState => {
-                    if (!reachableStates.has(targetState)) {
-                        reachableStates.add(targetState);
-                        queue.push(targetState);
-                    }
-                });
-            });
-        }
-
-        // Crear nuevo AFD solo con estados alcanzables
-        const optimizedDFA = new Automaton('DFA');
-        const stateMapping = new Map();
-
-        // Copiar estados alcanzables
-        let newStateId = 0;
-        reachableStates.forEach(oldState => {
-            const newState = optimizedDFA.createState(oldState.isAccepting);
-            newState.id = newStateId++;
-            stateMapping.set(oldState, newState);
-            
-            if (oldState === dfa.startState) {
-                optimizedDFA.setStartState(newState);
-            }
-        });
-
-        // Copiar transiciones
-        reachableStates.forEach(oldState => {
-            const newFromState = stateMapping.get(oldState);
-            
-            oldState.transitions.forEach((targetStates, symbol) => {
-                targetStates.forEach(oldTargetState => {
-                    if (reachableStates.has(oldTargetState)) {
-                        const newTargetState = stateMapping.get(oldTargetState);
-                        optimizedDFA.addTransition(newFromState, symbol, newTargetState);
-                    }
-                });
-            });
-        });
-
-        return optimizedDFA;
-    }
+    opt._acceptingNFAIds = accNFA;
+    return opt;
+  }
 }
 
 export default SubsetConstruction;
 
-// Ejemplo de uso:
+// --------- Utilidades opcionales para auditoría/minimización ---------
 
-import ThompsonNFA from './thompsonNFA.js';
+/**
+ * Re-etiqueta la aceptación del DFA por intersección con los finales originales del NFA.
+ * Úsalo después de minimizar o de cualquier transformación que rehaga estados.
+ */
+export function reconcileAcceptingByIntersection(dfa) {
+  const accNFA = dfa._acceptingNFAIds || new Set();
+  dfa.acceptStates.clear();
+  dfa.states.forEach(st => {
+    const ok = Array.isArray(st.originNFAIds)
+      ? st.originNFAIds.some(id => accNFA.has(id))
+      : st.isAccepting; // fallback
+    st.isAccepting = ok;
+    if (ok) dfa.acceptStates.add(st);
+  });
+  return dfa;
+}
 
-const thompson = new ThompsonNFA();
-const subsetConstruction = new SubsetConstruction();
-
-// Crear un AFN simple
-const nfa = thompson.buildNFA('ab|*');
-
-// Convertir a AFD
-const result = subsetConstruction.convertWithSteps(nfa);
-
-if (result.success) {
-    console.log('AFD generado:');
-    console.log(result.dfa.export('json'));
+/**
+ * Devuelve los IDs de estados NFA que aparecen en algún estado DFA de aceptación.
+ * (La “intersección al final” que pide el profesor, como reporte)
+ */
+export function commonAcceptingNFAIds(dfa) {
+  const res = new Set();
+  const accNFA = dfa._acceptingNFAIds || new Set();
+  dfa.states.forEach(st => {
+    if (!st.isAccepting) return;
+    if (Array.isArray(st.originNFAIds)) {
+      for (const id of st.originNFAIds) {
+        if (accNFA.has(id)) res.add(id);
+      }
+    }
+  });
+  return res;
 }
